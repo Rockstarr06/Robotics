@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Sat Nov 18 20:22:12 2023
+
+@author: Pravesh
+"""
+
+import cv2
+import numpy as np
+
+def stitch_images_sift(images):
+    gray_images = [cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) for image in images]
+
+    sift = cv2.SIFT_create()
+    keypoints = []
+    descriptors = []
+
+    for gray in gray_images:
+        kp, desc = sift.detectAndCompute(gray, None)
+        keypoints.append(kp)
+        descriptors.append(desc)
+
+    matcher = cv2.BFMatcher()
+    matches = [matcher.knnMatch(descriptors[i], descriptors[i + 1], k=2) for i in range(len(descriptors) - 1)]
+
+    good_matches = []
+    for match in matches:
+        gm = []
+        for m, n in match:
+            if m.distance < 0.75 * n.distance:
+                gm.append(m)
+        good_matches.append(gm)
+
+    warp_matrices = []
+    for i in range(len(good_matches)):
+        src_pts = np.float32([keypoints[i][m.queryIdx].pt for m in good_matches[i]]).reshape(-1, 1, 2)
+        dst_pts = np.float32([keypoints[i + 1][m.trainIdx].pt for m in good_matches[i]]).reshape(-1, 1, 2)
+
+        H, _ = cv2.findHomography(dst_pts, src_pts, cv2.RANSAC, 5.0)
+        warp_matrices.append(H)
+
+    height, width = gray_images[0].shape
+    warped_img = [images[0]]
+
+    for i in range(len(warp_matrices)):
+        warped = cv2.warpPerspective(images[i + 1], warp_matrices[i], (width * (i + 2), height))
+        warped_img.append(warped)
+
+    panorama = np.concatenate(warped_img, axis=1)
+    return panorama
+
+image_paths = [
+    "/Users/Pravesh/Downloads/IMG1.jpg",
+    "/Users/Pravesh/Downloads/IMG2.jpg",
+    "/Users/Pravesh/Downloads/IMG3.jpg"
+]
+
+# Read images
+images = [cv2.imread(image_path) for image_path in image_paths]
+
+# Create the panorama with SIFT
+result_panorama_sift = stitch_images_sift(images)
+
+# Display or save the panorama result
+cv2.imshow('Panorama of Three Images (SIFT)', result_panorama_sift)
+cv2.waitKey(0)
+cv2.destroyAllWindows() 
+
